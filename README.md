@@ -446,17 +446,17 @@ YATA/
 
 This project is backed by a peer-reviewed research paper published in the **International Journal of Progressive Research in Engineering Management and Science (IJPREMS)**:
 
-> **YATA: Yet Another Thread Antagonist**
+> **YATA: An Exploit-Verified, Self-Healing Framework for Automated Vulnerability Detection and Remediation**
 >
 > Charan Pote, Aarsh Chauhan, Nishant Kale, Sarthak Dhamande, Vivek Dhole, Navdeep Moundekar
 >
-> *IJPREMS — Volume 06, Issue 10*
+> *IJPREMS — Volume 06, Issue 10, October 2026*
 >
 > 🔗 DOI: [10.58257/IJPREMS55167](https://www.doi.org/10.58257/IJPREMS55167)
 
 ```bibtex
 @article{pote2026yata,
-  title   = {YATA: Yet Another Thread Antagonist},
+  title   = {YATA: An Exploit-Verified, Self-Healing Framework for Automated Vulnerability Detection and Remediation},
   author  = {Pote, Charan and Chauhan, Aarsh and Kale, Nishant and Dhamande, Sarthak and Dhole, Vivek and Moundekar, Navdeep},
   journal = {International Journal of Progressive Research in Engineering Management and Science (IJPREMS)},
   volume  = {6},
