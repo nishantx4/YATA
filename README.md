@@ -10,10 +10,8 @@
 <h4 align="center"><i>The Cybersecurity Ouroboros</i></h4>
 
 <p align="center">
-  <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?logo=opensourceinitiative&logoColor=white" alt="MIT" /></a>
-  <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?logo=apache&logoColor=white" alt="Apache 2.0" /></a>
-  <a href="LICENSE-GPL-3.0"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg?logo=gnu&logoColor=white" alt="GPL v3" /></a>
-  <a href="https://www.doi.org/10.58257/IJPREMS55167"><img src="https://img.shields.io/badge/DOI-10.58257%2FIJPREMS55167-10.58257?style=flat&logo=doi&logoColor=white&color=brightgreen" alt="DOI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/static/v1?label=License&message=Free%20to%20Use%20%7C%20No%20Derivatives&color=red" alt="License" /></a>
+  <a href="https://www.doi.org/10.58257/IJPREMS55167"><img src="https://img.shields.io/static/v1?label=DOI&message=10.58257%2FIJPREMS55167&color=blue&logo=doi&logoColor=white" alt="DOI" /></a>
   <img src="https://img.shields.io/badge/NVIDIA-NIM%20LLMs-76B900?logo=nvidia&logoColor=white" alt="NVIDIA" />
 </p>
 
@@ -502,15 +500,15 @@ This project is backed by a peer-reviewed research paper published in the **Inte
 
 ## 📄 License
 
-This project is **multi-licensed**. You may choose any one of:
+This software is released under a **Custom Academic & Research License (Free to Use, No Derivatives / No Modifications)**:
 
-| License | File | Badge |
-|:---|:---|:---|
-| MIT | [LICENSE-MIT](LICENSE-MIT) | ![MIT](https://img.shields.io/badge/License-MIT-yellow.svg) |
-| Apache 2.0 | [LICENSE-APACHE](LICENSE-APACHE) | ![Apache](https://img.shields.io/badge/License-Apache%202.0-blue.svg) |
-| GNU GPL v3 | [LICENSE-GPL-3.0](LICENSE-GPL-3.0) | ![GPL](https://img.shields.io/badge/License-GPLv3-blue.svg) |
+- ✅ **Free to use & evaluate**: Anyone may freely clone, install, inspect, and run YATA for educational, research, security assessment, or personal use.
+- ❌ **No modifications**: Modifying, rewriting, tampering, or distributing altered/derivative versions of the codebase is strictly prohibited.
+- 📝 **Attribution required**: Any presentation, study, or academic paper utilizing YATA must cite the original authors and the [IJPREMS Research Paper](https://www.doi.org/10.58257/IJPREMS55167).
 
-Copyright (c) 2026 YATA Contributors
+See the full [LICENSE](LICENSE) file for complete terms.
+
+Copyright (c) 2026 Charan Pote, Aarsh Chauhan, Nishant Kale, Sarthak Dhamande, Vivek Dhole, Navdeep Moundekar. All Rights Reserved.
 
 ---
 

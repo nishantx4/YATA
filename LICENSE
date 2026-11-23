@@ -1,7 +1,46 @@
-This project is multi-licensed under any one of:
+YATA Software License (Free to Use, No Derivatives)
 
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- GNU General Public License v3.0 ([LICENSE-GPL-3.0](LICENSE-GPL-3.0))
+Copyright (c) 2026 Charan Pote, Aarsh Chauhan, Nishant Kale, Sarthak Dhamande, Vivek Dhole, Navdeep Moundekar.
+All Rights Reserved.
+Priyadarshini College of Engineering, Nagpur.
 
-You may choose any one of these licenses for your use of this project.
+==============================================================================
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+==============================================================================
+
+1. GRANT OF USE:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to inspect,
+install, execute, and use the Software for educational, research, personal,
+or internal security evaluation purposes.
+
+2. RESTRICTIONS ON MODIFICATION AND DERIVATIVE WORKS:
+- STRICTLY NO MODIFICATIONS: You may NOT modify, alter, adapt, translate,
+  decompile, reverse-engineer, or create derivative works based on this
+  Software or any portion thereof.
+- NO DISTRIBUTION OF MODIFIED CODE: You may NOT distribute, publish, sublicense,
+  or host any altered or modified versions of the Software source code.
+- VERBATIM DISTRIBUTION: Redistribution of verbatim, unmodified copies of the
+  Software is permitted provided that all copyright notices, author credits,
+  and this entire license document remain completely intact.
+
+3. MANDATORY RESEARCH CITATION:
+Any academic, commercial, or institutional publication, study, or assessment
+referencing or utilizing this software must cite the corresponding peer-reviewed
+research paper:
+
+  Title:   YATA: Yet Another Thread Antagonist
+  Authors: Charan Pote, Aarsh Chauhan, Nishant Kale, Sarthak Dhamande, Vivek Dhole, Navdeep Moundekar
+  Journal: International Journal of Progressive Research in Engineering Management and Science (IJPREMS)
+  Volume:  06, Issue 10, 2026
+  DOI:     10.58257/IJPREMS55167
+  Link:    https://www.doi.org/10.58257/IJPREMS55167
+
+4. DISCLAIMER OF WARRANTY:
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
