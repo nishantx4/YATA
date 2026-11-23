@@ -1,0 +1,10 @@
+{
+  "insecure_deserialization": {
+    "path": "/load",
+    "method": "POST",
+    "params": {
+      "data": "__PAYLOAD__"
+    },
+    "expected_status": 200
+  }
+}

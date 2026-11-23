@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yata"
+version = "0.9.9"
+description = "YATA (Yet Another Threat Antagonist) — a two-module security agent: a development side that proves-and-patches source-code vulnerabilities, and a deployment side (RECON) that scans live web applications."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    # development side
+    "Flask>=3.0,<4.0",
+    "rich>=13.7,<14.0",
+    "requests>=2.31,<3.0",
+    "openai>=2.41,<3.0",
+    "InquirerPy>=0.3.4",
+    "python-dotenv>=1.0,<2.0",
+    "textual>=8.2,<9.0",
+    # deployment side (RECON)
+    "urllib3>=1.26",
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "pyjwt>=2.8",
+    "cryptography>=42.0",
+    "dnspython>=2.6",
+    "aiofiles>=24.1",
+    "pyyaml>=6.0",
+    "websocket-client>=1.7",
+]
+
+[project.scripts]
+yata = "yata:main"
+
+[tool.setuptools]
+py-modules = ["yata", "blue_agent", "red_agent", "verifier", "report_generator", "llm_client", "attack_library", "fallback_patches", "learner_agent", "mutator_agent", "js_detectors", "js_patches", "js_runtime", "chat_agent", "tool_output", "sandbox"]
+packages = ["commands", "tui", "tui.widgets", "tui.screens", "recon", "recon.core", "recon.modules", "recon.tui", "recon.tui.widgets", "recon.tui.screens", "recon.tui.styles"]
+
+[tool.setuptools.package-data]
+recon = ["data/*.txt"]
+"recon.tui.styles" = ["*.tcss"]

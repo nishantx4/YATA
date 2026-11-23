@@ -1,0 +1,10 @@
+{
+  "open_redirect": {
+    "path": "/goto",
+    "method": "GET",
+    "params": {
+      "next": "__PAYLOAD__"
+    },
+    "expected_status": 302
+  }
+}

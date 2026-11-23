@@ -1,0 +1,694 @@
+"""
+ReconModule — crawls target, extracts endpoints, parameters, and forms.
+Feeds XSS, SQLi, and other modules with real data.
+"""
+import re
+import json
+import time
+import urllib.parse
+import ipaddress
+from html import unescape as html_unescape  # local name: method params are called `html`
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    import requests
+    from requests.exceptions import RequestException
+except ImportError:
+    requests = None
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+
+from recon.modules import BaseModule
+
+
+# Common locations for OpenAPI/Swagger specs — hit before assuming an API
+# has no discoverable surface. A pure JSON/XML REST API (no HTML forms, no
+# crawlable links) is otherwise completely invisible to every injection
+# module, since they only ever learn about params via HTML forms/query
+# strings/mined JS.
+# Real object-ID harvesting — feeds idor.py so it can test UUID-keyed APIs
+# instead of only ever guessing literal 1/2. Numeric ids need a "this looks
+# like an identifier, not just any number" key hint nearby to avoid
+# harvesting every price/quantity/timestamp on the page; UUIDs are
+# distinctive enough on their own.
+UUID_RE = re.compile(
+    r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'
+)
+ID_KV_RE = re.compile(
+    # Hex/UUID-shaped alternative tried FIRST: since digits are also valid
+    # hex characters, putting the plain \d{2,12} alternative first would
+    # let regex alternation short-circuit on just the leading digit-run of
+    # a longer hyphenated UUID value (e.g. capturing "550" out of
+    # "550e8400-e29b-...") instead of the full value.
+    r'"(?:id|uuid|_id|guid|userId|user_id|orderId|order_id|accountId|account_id|'
+    r'docId|doc_id|itemId|item_id|objectId|object_id)"\s*:\s*"?([0-9a-fA-F-]{8,36}|\d{2,12})"?',
+    re.I,
+)
+MAX_HARVESTED_IDS = 300
+
+API_SPEC_PATHS = [
+    "/openapi.json", "/openapi.yaml", "/openapi.yml",
+    "/swagger.json", "/swagger.yaml",
+    "/v1/openapi.json", "/v2/api-docs", "/v3/api-docs",
+    "/api-docs", "/api-docs.json", "/api-docs.yaml",
+    "/api/openapi.json", "/api/swagger.json",
+    "/api/v1/openapi.json", "/api/v1/swagger.json",
+    "/swagger/v1/swagger.json",
+    "/.well-known/openapi.yaml",
+]
+
+
+class ReconModule(BaseModule):
+    NAME = "Recon"
+
+    def __init__(self, target, db, ui, context, timeout=10, delay=0.3,
+                 threads=10, verbose=False, ai=None, output_dir=None):
+        super().__init__(target, db, ui, context, timeout, delay, threads, verbose, ai, output_dir)
+        self.session    = self._make_session()
+        self.visited    = set()
+        self.endpoints  = set()
+        self.forms      = []
+
+    def _make_session(self):
+        if not requests:
+            return None
+        s = requests.Session()
+        s.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        })
+        s.verify = False
+        s.max_redirects = 5
+        # Recon predates BaseModule._session(); wire it into the same shared
+        # telemetry so its (substantial) crawl traffic feeds the adaptive
+        # throttle AND the request counter the TUI samples. Without this the
+        # live rate reads 0/s for the entire recon phase even while it's busy
+        # crawling, which looks like the scan is stuck.
+        try:
+            from recon.modules import _adaptive_response_hook
+            s.hooks.setdefault("response", []).append(_adaptive_response_hook)
+        except Exception:
+            pass
+        try:
+            from recon.core import net
+            net.apply(s)
+        except Exception:
+            pass
+        return s
+
+    def _resolve_base_url(self):
+        """Try HTTPS first, fall back to HTTP if it fails."""
+        for scheme in ("https", "http"):
+            url = f"{scheme}://{self.target}"
+            try:
+                r = self.session.get(url, timeout=self.timeout, allow_redirects=True)
+                if r.status_code < 500:
+                    # Follow any redirect to get the real base
+                    return r.url.rstrip("/").split("?")[0]
+            except Exception:
+                continue
+        return f"http://{self.target}"
+
+    def run(self):
+        self.ui.section("Recon — Crawling & Endpoint Discovery")
+        if not requests:
+            self.ui.error("requests not installed.")
+            return
+
+        try:
+            import urllib3
+            urllib3.disable_warnings()
+        except Exception:
+            pass
+
+        # ── Incremental/cached recon ────────────────────────────────────
+        # A fresh-enough cache skips the crawl/subdomain-enum/JS-mining/
+        # API-spec-discovery phases entirely and loads their results
+        # straight into ctx — --fresh-recon (ctx['no_recon_cache']) or an
+        # empty/expired cache falls through to a normal full recon below.
+        if not self.ctx.get("no_recon_cache"):
+            from recon.core.recon_cache import load as load_recon_cache
+            cached = load_recon_cache(self.target, ttl=self.ctx.get("recon_cache_ttl", 6 * 3600))
+            if cached:
+                self.ctx.update(cached)
+                self.base_url = cached.get("base_url") or f"https://{self.target}"
+                self.endpoints = set(cached.get("endpoints", []))
+                self.forms = cached.get("forms", [])
+                self.ui.ok(
+                    f"Using cached recon for {self.target} — {len(self.endpoints)} endpoint(s), "
+                    f"{len(self.ctx.get('subdomains', []))} subdomain(s), "
+                    f"{len(self.ctx.get('harvested_object_ids', []))} object ID(s) "
+                    f"(pass --fresh-recon to force a full re-crawl)"
+                )
+                return
+
+        # Resolve real base URL (HTTP vs HTTPS auto-detect)
+        self.ui.info(f"Resolving base URL for {self.target} ...")
+        self.base_url = self._resolve_base_url()
+        self.ctx["base_url"] = self.base_url   # ← share with other modules
+        self.ui.ok(f"Base URL resolved: {self.base_url}")
+
+        # Start crawl
+        self.ui.info(f"Crawling {self.base_url} ...")
+        self._crawl(self.base_url, depth=2)
+
+        # Katana (ProjectDiscovery) headless crawler — auto-installed by
+        # session._ensure_external_tools but previously never invoked, so it
+        # was downloaded and then ignored. It reaches JS-rendered routes and
+        # form endpoints the regex crawler above misses; a no-op when katana
+        # isn't installed.
+        self._run_katana()
+
+        # Start OSINT Gathering (Subdomains & Wayback/OTX URLs)
+        self._enumerate_subdomains()
+        self._find_osint_urls()
+
+        # Mine JavaScript for hidden endpoints and parameter names
+        self._mine_javascript()
+
+        # Discover & parse an OpenAPI/Swagger spec — the only reliable way to
+        # find injectable params on a pure JSON/XML REST API with no HTML forms
+        self._discover_api_spec()
+
+        # Always seed endpoints with known-injectable probe paths
+        # so XSS/SQLi have targets even if the crawl fails
+        self._probe_common_paths()
+
+        # Update context
+        ep_list = list(self.endpoints)
+        self.ctx["forms"] = self.forms
+        self.ctx.setdefault("subdomains", [self.target])
+
+        # ── AI: prioritize endpoints for deeper testing ───────────────
+        # ctx["endpoints"] is populated with the AI-ranked order (falling back
+        # to crawl order when AI is disabled) so every downstream module that
+        # reads ctx["endpoints"] scans the highest-value targets first instead
+        # of the AI's ranking being computed and then discarded.
+        if self.ai and self.ai.enabled and ep_list:
+            ep_list = self.ai.prioritize_endpoints(ep_list)
+            self.ctx["ai_priority_endpoints"] = ep_list[:20]
+            self.ui.subsection("AI Top-Priority Endpoints")
+            for ep in ep_list[:10]:
+                self.ui.bullet(ep)
+            self.ui.blank()
+
+        self.ctx["endpoints"] = ep_list
+        harvested = self.ctx.get("harvested_object_ids", set())
+        self.ui.ok(f"Recon complete — {len(ep_list)} endpoints, {len(self.forms)} forms, "
+                    f"{len(harvested)} object ID(s) harvested")
+
+        try:
+            from recon.core.recon_cache import save as save_recon_cache
+            save_recon_cache(self.target, self.ctx)
+        except Exception:
+            pass
+
+    def _crawl(self, url, depth=2):
+        if depth == 0 or url in self.visited:
+            return
+        self.visited.add(url)
+        # Add to endpoints immediately — even if the request fails we
+        # know this URL exists (we resolved it in _resolve_base_url).
+        self.endpoints.add(url)
+
+        try:
+            resp = self.session.get(url, timeout=self.timeout, allow_redirects=True)
+            time.sleep(self.delay)
+        except Exception:
+            return
+
+        # Extract links and forms
+        links = self._extract_links(resp.text, url)
+        self._extract_forms(resp.text, url)
+        self._harvest_object_ids(resp.text)
+
+        # Recurse into same-domain links
+        for link in links:
+            if self._same_domain(link) and link not in self.visited:
+                self.endpoints.add(link)
+                if depth > 1:
+                    self._crawl(link, depth - 1)
+
+    def _extract_links(self, html, base_url):
+        links = set()
+        # href and src attributes
+        for match in re.finditer(r'(?:href|src|action)\s*=\s*["\']([^"\']+)["\']', html, re.I):
+            # HTML-unescape the attribute: an href written `?a=1&amp;b=2` is the
+            # URL `?a=1&b=2`. Without this, `&amp;` survives into the endpoint and
+            # parse_qs later splits it into a bogus param literally named
+            # `amp;b` — which is how a phantom `amp;source` SQLi/XSS param on a
+            # static page gets tested and (falsely) flagged.
+            raw = html_unescape(match.group(1).strip())
+            if raw.startswith(("javascript:", "mailto:", "#", "data:", "tel:")):
+                continue
+            try:
+                full = urllib.parse.urljoin(base_url, raw)
+                links.add(full)
+            except Exception:
+                pass
+        return links
+
+    def _extract_forms(self, html, page_url):
+        # Find all <form> elements
+        for form_match in re.finditer(r'<form[^>]*>(.*?)</form>', html, re.I | re.S):
+            form_html = form_match.group(0)
+            action_m  = re.search(r'action\s*=\s*["\']([^"\']*)["\']', form_html, re.I)
+            method_m  = re.search(r'method\s*=\s*["\']([^"\']*)["\']', form_html, re.I)
+
+            action = urllib.parse.urljoin(page_url, html_unescape(action_m.group(1))) if action_m else page_url
+            method = method_m.group(1).upper() if method_m else "GET"
+
+            inputs = {}
+            for inp in re.finditer(r'<input[^>]+>', form_html, re.I):
+                inp_html = inp.group(0)
+                name_m  = re.search(r'name\s*=\s*["\']([^"\']+)["\']', inp_html, re.I)
+                val_m   = re.search(r'value\s*=\s*["\']([^"\']*)["\']', inp_html, re.I)
+                type_m  = re.search(r'type\s*=\s*["\']([^"\']+)["\']', inp_html, re.I)
+                if name_m:
+                    inp_type = type_m.group(1).lower() if type_m else "text"
+                    if inp_type not in ("submit", "button", "image", "reset", "file"):
+                        inputs[name_m.group(1)] = val_m.group(1) if val_m else ""
+
+            # Also pick up <textarea> and <select> names
+            for ta in re.finditer(r'<textarea[^>]*name\s*=\s*["\']([^"\']+)["\']', form_html, re.I):
+                inputs[ta.group(1)] = ""
+            for sel in re.finditer(r'<select[^>]*name\s*=\s*["\']([^"\']+)["\']', form_html, re.I):
+                inputs[sel.group(1)] = ""
+
+            if inputs:
+                self.forms.append({"action": action, "method": method, "inputs": inputs})
+                self.endpoints.add(action)
+
+    def _harvest_object_ids(self, text):
+        """
+        Scan a page/JS body for real object identifiers — UUIDs anywhere,
+        plus numeric/hex values sitting next to an id-shaped JSON key. Feeds
+        ctx['harvested_object_ids'] so idor.py can swap in IDs that actually
+        exist (including on UUID-keyed APIs, which literal 1/2 guessing can
+        never touch) instead of only ever probing sequential integers.
+        """
+        if not text:
+            return
+        bucket = self.ctx.setdefault("harvested_object_ids", set())
+        if len(bucket) >= MAX_HARVESTED_IDS:
+            return
+        for m in UUID_RE.finditer(text):
+            bucket.add(m.group(0).lower())
+            if len(bucket) >= MAX_HARVESTED_IDS:
+                return
+        for m in ID_KV_RE.finditer(text):
+            bucket.add(m.group(1))
+            if len(bucket) >= MAX_HARVESTED_IDS:
+                return
+
+    def _probe_common_paths(self):
+        """
+        Probe well-known injectable paths.
+        ALL paths are added to ctx['probe_targets'] so XSS/SQLi can
+        test them regardless of whether they respond.
+        Paths that actually return a live response are also added to
+        self.endpoints.
+        """
+        paths = [
+            # Generic search / input params
+            "/search.php?test=query",
+            "/search?q=test",
+            "/?s=test",
+            "/?q=test",
+            # ID-based pages (prime SQLi targets)
+            "/index.php?id=1",
+            "/page.php?id=1",
+            "/item.php?id=1",
+            "/view.php?id=1",
+            "/show.php?id=1",
+            "/detail.php?id=1",
+            "/news.php?id=1",
+            "/product.php?id=1",
+            # vulnweb / acunetix style (deliberately vulnerable)
+            "/listproducts.php?cat=1",
+            "/artists.php?artist=1",
+            "/userinfo.php?uid=1",
+            "/guestbook.php",
+            "/comment.php",
+            "/showimage.php?file=1",
+            "/hpp/params.php?p=1&pp=2",
+            "/Mod_Rewrite_Shop/",
+            "/AJAX/index.php",
+            "/signup.php",
+            # Enterprise / Frameworks
+            "/console/login/LoginForm.jsp", # WebLogic
+            "/manager/html",                # Tomcat
+            "/actuator/env",                # Spring Boot
+            "/swagger-ui.html",             # Swagger API
+            # Auth / common
+            "/login.php",
+            "/login.jsp",
+            "/login.html",
+            "/login",
+            "/register",
+            "/contact.php",
+            # Admin
+            "/admin",
+            "/admin.php",
+            "/admin.jsp",
+            # API
+            "/api/v1/search",
+            "/api/search",
+            "/api/users",
+        ]
+        probe_targets = []
+        for path in paths:
+            url = urllib.parse.urljoin(self.base_url, path)
+            probe_targets.append(url)
+            # Add immediately so scanners always have these targets
+            self.endpoints.add(url)
+
+        # Store probe targets in context for XSS/SQLi to use directly
+        self.ctx["probe_targets"] = probe_targets
+
+        self.ui.info(f"Probing {len(paths)} common paths for live responses...")
+        probe_timeout = min(self.timeout, 8)  # shorter timeout for probing
+        for url in probe_targets:
+            try:
+                resp = self.session.get(url, timeout=probe_timeout, allow_redirects=True)
+                if resp.status_code not in (404, 410):
+                    self._extract_forms(resp.text, url)
+                    self._harvest_object_ids(resp.text)
+                    if self.verbose:
+                        self.ui.info(f"  [{resp.status_code}] {url}")
+                time.sleep(self.delay * 0.5)  # half delay for probing
+            except Exception:
+                pass
+
+    def _same_domain(self, url):
+        try:
+            parsed = urllib.parse.urlparse(url)
+            return self.target in parsed.netloc
+        except Exception:
+            return False
+
+    def _mine_javascript(self):
+        """
+        Fetch same-domain JS files referenced so far and extract:
+          - hidden API/route paths (e.g. "/api/v1/orders")
+          - parameter names used in fetch/axios/XHR calls
+        Discovered endpoints feed XSS/SQLi; param names are shared via ctx.
+        """
+        js_urls = [u for u in self.endpoints if u.split("?")[0].endswith(".js")]
+        if not js_urls:
+            return
+
+        self.ui.info(f"Mining {min(len(js_urls), 15)} JS file(s) for endpoints and params...")
+        path_re  = re.compile(r'["\'](\/[A-Za-z0-9_\-\/]{2,60})["\']')
+        param_re = re.compile(r'[?&]([A-Za-z0-9_\-]{2,30})=')
+        body_param_re = re.compile(r'["\']([A-Za-z0-9_\-]{2,30})["\']\s*:')
+
+        discovered_params = set(self.ctx.get("js_params", []))
+        for js_url in js_urls[:15]:
+            try:
+                resp = self.session.get(js_url, timeout=self.timeout)
+                self._throttle()
+            except Exception:
+                continue
+            if not resp or resp.status_code != 200:
+                continue
+            text = resp.text
+            self._harvest_object_ids(text)
+
+            for m in path_re.finditer(text):
+                path = m.group(1)
+                if any(seg in path for seg in ("api", "v1", "v2", "user", "account",
+                                               "admin", "order", "graphql", "search")):
+                    self.endpoints.add(urllib.parse.urljoin(self.base_url, path))
+            for m in param_re.finditer(text):
+                discovered_params.add(m.group(1))
+            for m in body_param_re.finditer(text):
+                discovered_params.add(m.group(1))
+
+        if discovered_params:
+            self.ctx["js_params"] = sorted(discovered_params)
+            # Seed base-URL probes with the mined params so XSS/SQLi test them.
+            for p in list(discovered_params)[:40]:
+                self.endpoints.add(f"{self.base_url}?{p}=test")
+            self.ui.ok(f"JS mining found {len(discovered_params)} parameter name(s)")
+
+    def _is_ip(self, host):
+        try:
+            ipaddress.ip_address(host)
+            return True
+        except ValueError:
+            return False
+
+    def _enumerate_subdomains(self):
+        """Query subdomains using subfinder or fallback to crt.sh."""
+        domain = self.target.split(':')[0]
+        if self._is_ip(domain):
+            return
+
+        found = set()
+        if self.tool_runner and self.tool_runner.is_installed("subfinder"):
+            self.ui.info(f"Running subfinder for {domain} ...")
+            try:
+                res = self.tool_runner.run_sync("subfinder", ["-d", domain, "-silent", "-all", "-timeout", "10"], parse_json=False)
+                for line in res.stdout_lines:
+                    sub = line.strip().lower()
+                    if sub.endswith(domain):
+                        found.add(sub)
+            except Exception as e:
+                self.ui.warn(f"Subfinder failed: {e}")
+        else:
+            self.ui.info(f"Querying crt.sh for subdomains of {domain} ...")
+            url = f"https://crt.sh/?q=%25.{domain}&output=json"
+            try:
+                # crt.sh can be slow/unreliable, so we use a strict timeout
+                r = self.session.get(url, timeout=15)
+                if r.status_code == 200:
+                    try:
+                        data = r.json()
+                        for entry in data:
+                            name = entry.get('name_value', '').lower()
+                            if name and '*' not in name:
+                                for sub in name.split('\n'):
+                                    if sub.endswith(domain):
+                                        found.add(sub.strip())
+                    except Exception:
+                        pass
+            except Exception:
+                self.ui.warn("crt.sh query timed out or failed.")
+                
+        if found:
+            self.ui.ok(f"Discovered {len(found)} subdomains")
+            existing = self.ctx.setdefault("subdomains", [])
+            self.ctx["subdomains"] = list(set(existing + list(found)))
+
+    def _find_osint_urls(self):
+        """Query waybackurls/gau if available, fallback to AlienVault OTX."""
+        domain = self.target.split(':')[0]
+        if self._is_ip(domain):
+            return
+
+        added = 0
+        if self.tool_runner and self.tool_runner.is_installed("waybackurls"):
+            self.ui.info(f"Running waybackurls for {domain} ...")
+            try:
+                res = self.tool_runner.run_sync("waybackurls", [], parse_json=False, stdin_data=domain)
+                for line in res.stdout_lines:
+                    u = line.strip()
+                    if u and u not in self.endpoints:
+                        self.endpoints.add(u)
+                        added += 1
+            except Exception as e:
+                self.ui.warn(f"Waybackurls failed: {e}")
+        else:
+            self.ui.info(f"Querying AlienVault OTX for historical URLs on {domain} ...")
+            url = f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/url_list?limit=150"
+            try:
+                r = self.session.get(url, timeout=15)
+                if r.status_code == 200:
+                    data = r.json()
+                    url_list = data.get("url_list", [])
+                    for item in url_list:
+                        u = item.get("url")
+                        if u and u not in self.endpoints:
+                            self.endpoints.add(u)
+                            added += 1
+            except Exception:
+                self.ui.warn("AlienVault OTX query timed out or failed.")
+                
+        if added > 0:
+            self.ui.ok(f"Discovered {added} historical URLs")
+            
+    def _discover_api_spec(self):
+        """
+        Probe common OpenAPI/Swagger spec locations. If one is found, parse it
+        into ctx['api_endpoints'] (structured method/path/query/header/body
+        params — including JSON and XML request bodies) and ctx['auth_headers']
+        (example header values, e.g. an API token, needed to reach past auth
+        on endpoints that require one). Injection modules (sqli.py, etc.) read
+        ctx['api_endpoints'] directly since these params are never reachable
+        via crawling alone.
+        """
+        for path in API_SPEC_PATHS:
+            url = urllib.parse.urljoin(self.base_url + "/", path.lstrip("/"))
+            try:
+                resp = self.session.get(url, timeout=self.timeout)
+            except Exception:
+                continue
+            if resp.status_code != 200 or len(resp.text.strip()) < 20:
+                continue
+
+            spec = self._parse_spec_body(resp.text)
+            if not spec or "paths" not in spec:
+                continue
+
+            self.ui.ok(f"OpenAPI/Swagger spec found: {url}")
+            self.ctx["api_spec_url"] = url
+            self.endpoints.add(url)
+            self._extract_api_endpoints(spec)
+            return
+
+    def _parse_spec_body(self, text):
+        """Try JSON first, then YAML. Returns a dict or None."""
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        if yaml:
+            try:
+                data = yaml.safe_load(text)
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+        return None
+
+    def _extract_api_endpoints(self, spec):
+        base = self.base_url.rstrip("/")
+        paths = spec.get("paths", {})
+        if not isinstance(paths, dict):
+            return
+
+        api_endpoints = []
+        auth_headers = {}
+
+        for path_key, methods in paths.items():
+            if not isinstance(methods, dict):
+                continue
+            for method, op in methods.items():
+                method_u = method.upper()
+                if method_u not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+                    continue
+                if not isinstance(op, dict):
+                    continue
+
+                query_params, path_params, header_params = [], [], []
+                for p in op.get("parameters", []) or []:
+                    if not isinstance(p, dict):
+                        continue
+                    name = p.get("name")
+                    if not name:
+                        continue
+                    example = p.get("example")
+                    if example is None:
+                        example = (p.get("schema") or {}).get("example", "")
+                    loc = p.get("in")
+                    if loc == "query":
+                        query_params.append((name, example))
+                    elif loc == "path":
+                        path_params.append((name, example))
+                    elif loc == "header":
+                        header_params.append((name, example))
+                        if example:
+                            auth_headers[name] = str(example)
+
+                # Request body — JSON properties and/or an XML example template
+                json_props = []
+                xml_template, xml_field = None, None
+                body = op.get("requestBody", {}) or {}
+                content = body.get("content", {}) if isinstance(body, dict) else {}
+
+                json_content = content.get("application/json") if isinstance(content, dict) else None
+                if isinstance(json_content, dict):
+                    schema = json_content.get("schema", {}) or {}
+                    props = schema.get("properties", {}) or {}
+                    if isinstance(props, dict):
+                        json_props = list(props.keys())
+
+                xml_content = content.get("application/xml") if isinstance(content, dict) else None
+                if isinstance(xml_content, dict):
+                    schema = xml_content.get("schema", {}) or {}
+                    props = schema.get("properties", {}) or {}
+                    examples = xml_content.get("examples", {}) or {}
+                    example_xml = None
+                    for ex in (examples.values() if isinstance(examples, dict) else []):
+                        if isinstance(ex, dict) and "value" in ex:
+                            example_xml = ex["value"]
+                            break
+                    if isinstance(props, dict) and props and example_xml:
+                        field = next(iter(props.keys()))
+                        marker = "__GR_INJECT__"
+                        new_xml, n = re.subn(
+                            rf"(<{re.escape(field)}>).*?(</{re.escape(field)}>)",
+                            rf"\1{marker}\2", example_xml, count=1, flags=re.S,
+                        )
+                        if n:
+                            xml_template, xml_field = new_xml, field
+
+                api_endpoints.append({
+                    "url": base + path_key,
+                    "method": method_u,
+                    "path_params": path_params,
+                    "query_params": query_params,
+                    "header_params": header_params,
+                    "json_props": json_props,
+                    "xml_template": xml_template,
+                    "xml_field": xml_field,
+                })
+
+        if not api_endpoints:
+            return
+
+        self.ctx["api_endpoints"] = api_endpoints
+        if auth_headers:
+            # These are just static examples pulled from the spec (e.g.
+            # "X-Auth-Token: THISISATOKEN") — never let them clobber a real
+            # user-supplied (--header) or live-captured (auth-bypass SQLi,
+            # forged JWT, ...) credential that's already been seeded.
+            existing = self.ctx.setdefault("auth_headers", {})
+            for k, v in auth_headers.items():
+                existing.setdefault(k, v)
+
+        json_body_count = sum(len(e["json_props"]) for e in api_endpoints)
+        xml_body_count  = sum(1 for e in api_endpoints if e["xml_template"])
+        self.ui.ok(
+            f"Parsed {len(api_endpoints)} API operation(s) from spec — "
+            f"{json_body_count} JSON body param(s), {xml_body_count} XML body field(s)"
+        )
+
+    def _run_katana(self):
+        """Run ProjectDiscovery's Katana crawler if installed."""
+        if not self.tool_runner or not self.tool_runner.is_installed("katana"):
+            return
+            
+        self.ui.info(f"Running Katana headless crawler on {self.base_url} ...")
+        added = 0  # BUG FIX: was never initialized — the first `added += 1`
+                   # raised UnboundLocalError, which the except below swallowed
+                   # as "Katana failed", so katana's results were always lost.
+        try:
+            res = self.tool_runner.run_sync("katana", ["-u", self.base_url, "-d", "2", "-jc", "-aff", "-silent"], parse_json=False)
+            for line in res.stdout_lines:
+                u = line.strip()
+                if u and u.startswith("http") and u not in self.endpoints and self._same_domain(u):
+                    self.endpoints.add(u)
+                    self._harvest_object_ids(u)
+                    added += 1
+            if added > 0:
+                self.ui.ok(f"Katana discovered {added} endpoints")
+        except Exception as e:
+            self.ui.warn(f"Katana failed: {e}")

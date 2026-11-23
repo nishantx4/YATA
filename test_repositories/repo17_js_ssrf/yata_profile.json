@@ -1,0 +1,10 @@
+{
+  "ssrf": {
+    "path": "/fetch",
+    "method": "GET",
+    "params": {
+      "url": "__PAYLOAD__"
+    },
+    "expected_status": 200
+  }
+}

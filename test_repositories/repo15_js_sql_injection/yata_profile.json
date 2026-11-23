@@ -1,0 +1,12 @@
+{
+  "sql_injection": {
+    "path": "/login",
+    "method": "POST",
+    "params": {
+      "username": "__PAYLOAD__",
+      "password": "anything"
+    },
+    "success_contains": "Welcome",
+    "success_status_code": 200
+  }
+}

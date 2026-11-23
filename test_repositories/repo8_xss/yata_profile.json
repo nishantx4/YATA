@@ -1,0 +1,10 @@
+{
+  "cross_site_scripting": {
+    "path": "/greet",
+    "method": "GET",
+    "params": {
+      "name": "__PAYLOAD__"
+    },
+    "expected_status": 200
+  }
+}

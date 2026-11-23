@@ -1,0 +1,14 @@
+{
+  "name": "yata-js-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runtime dependencies used only to execute and verify JavaScript/TypeScript target repositories under test_repositories/. Not part of the YATA CLI itself.",
+  "dependencies": {
+    "express": "^4.19.2",
+    "axios": "^1.7.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "ts-node": "^10.9.2"
+  }
+}

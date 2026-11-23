@@ -1,0 +1,32 @@
+# ─── YATA (development side) ─────────────────────────────────────────────
+# HUNTER / HEALER / VALIDATOR / MUTATOR / LEARNER / REPORTER + test fixtures
+Flask>=3.0,<4.0
+rich>=13.7,<14.0
+requests>=2.31,<3.0
+openai>=2.41,<3.0
+InquirerPy>=0.3.4
+python-dotenv>=1.0,<2.0
+
+# ─── RECON (deployment side) ─────────────────────────────────────────────
+# Live web-app scanning engine under recon/ (driven by `yata recon`).
+urllib3>=1.26
+textual>=1.0
+httpx>=0.27
+beautifulsoup4>=4.12
+pyjwt>=2.8
+cryptography>=42.0
+dnspython>=2.6
+aiofiles>=24.1
+pyyaml>=6.0
+websocket-client>=1.7
+
+# RECON optional extras — everything degrades gracefully if absent.
+#  • Visual evidence (screenshots) for XSS/clickjacking, DOM-XSS testing,
+#    live OAuth PKCE testing:
+#       pip install playwright && playwright install chromium
+# playwright>=1.40
+#  • gRPC reflection-based enumeration + fuzzing (recon/modules/graphql.py):
+#       pip install grpcio grpcio-reflection protobuf
+# grpcio>=1.60
+# grpcio-reflection>=1.60
+# protobuf>=4.25

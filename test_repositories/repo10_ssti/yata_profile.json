@@ -1,0 +1,10 @@
+{
+  "server_side_template_injection": {
+    "path": "/hello",
+    "method": "GET",
+    "params": {
+      "name": "__PAYLOAD__"
+    },
+    "expected_status": 200
+  }
+}

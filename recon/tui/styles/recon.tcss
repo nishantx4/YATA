@@ -1,0 +1,397 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   YATA RECON — "YATA RECON" theme
+   One cold accent (teal), muted semantic severity scale, near-black ground.
+   Panel identity lives on the border title, not a label stuffed inside the
+   box. Keep hex values in sync with tui/theme.py (used for Rich markup in
+   widget code that CSS can't reach).
+
+   Layout: a telemetry strip on top, then three zones —
+     · left  : the module spine (the whole run at a glance)
+     · center: findings feed (prominent) over the live engine output
+     · right : AI analysis rail
+   ═══════════════════════════════════════════════════════════════════════ */
+
+$bg:            #0a0b0d;
+$bg-panel:      #0d1014;
+$bg-elevated:   #14181d;
+$bg-select:     #1b2b2a;
+
+$border:        #222932;
+$border-strong: #3a4048;
+
+$text:          #c9d1d9;
+$text-dim:      #68717f;
+$text-faint:    #3b424c;
+
+$accent:        #45d1c4;
+$accent-dim:    #245853;
+
+$ok:            #4ba876;
+$crit:          #e5484d;
+$high:          #d97a4d;
+$med:           #c9a227;
+$low:           #4a90c4;
+$info:          #4a90c4;
+
+Screen {
+    background: $bg;
+    color: $text;
+    scrollbar-background: $bg;
+    scrollbar-background-hover: $bg;
+    scrollbar-background-active: $bg;
+    scrollbar-color: $border-strong;
+    scrollbar-color-hover: $accent-dim;
+    scrollbar-color-active: $accent;
+    scrollbar-size: 1 1;
+}
+
+/* scrollbar-size/color are NOT inherited — they must be set on the widget
+   that actually scrolls. These are the inner scrollers (the panel chrome
+   itself rarely scrolls); without this they render with the fat 2-wide
+   default bar that looked ugly next to the thin, styled live-log one. */
+#module_list, #ai_entries, #finding_list, #detail_scroll,
+#report_body, #setup_scroll, #live_log {
+    scrollbar-size: 1 1;
+    scrollbar-background: $bg-panel;
+    scrollbar-color: $border-strong;
+    scrollbar-color-hover: $accent-dim;
+    scrollbar-color-active: $accent;
+}
+
+/* ── Header: slim, one accent wordmark, no clickable icon ── */
+Header {
+    background: $bg-panel;
+    color: $accent;
+    text-style: bold;
+    height: 1;
+    border-bottom: solid $border;
+}
+HeaderIcon { display: none; }
+HeaderClock { color: $text-dim; background: $bg-panel; }
+HeaderClockSpace { background: $bg-panel; }
+HeaderTitle { color: $accent; text-style: bold; }
+
+/* ── Footer: thin, keys in accent ── */
+Footer { background: $bg-panel; color: $text-dim; height: 1; }
+Footer > .footer--key { color: $accent; text-style: bold; background: $bg-panel; }
+Footer > .footer--description { color: $text-dim; background: $bg-panel; }
+FooterKey { background: $bg-panel; color: $text-dim; }
+FooterKey.-command-palette { display: none; }
+FooterKey .footer-key--key { color: $accent; text-style: bold; }
+FooterKey .footer-key--description { color: $text-dim; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Dashboard
+   ═══════════════════════════════════════════════════════════════════════ */
+/* Fixed dashboard: it's sized to fit exactly and every panel scrolls its own
+   content, so the SCREEN itself must never show a scrollbar (that stray
+   full-height bar on the right edge). */
+DashboardScreen { background: $bg; layout: vertical; overflow: hidden; }
+
+/* Row 1 — telemetry strip: flat, a bottom rule only (not a boxed panel) */
+#info_bar {
+    height: 3;
+    background: $bg-panel;
+    border-bottom: solid $border-strong;
+    padding: 0 1;
+}
+#info_bar_row { height: 3; width: 100%; }
+.info-cell {
+    width: auto;
+    height: 3;
+    content-align: left middle;
+    color: $text;
+    padding: 0 2 0 0;
+}
+#info_target { width: 1fr; }     /* absorbs the slack so the strip is full-width */
+#info_trend  { width: auto; min-width: 20; content-align: right middle; padding: 0; }
+
+/* The main body: left spine · center column · right rail */
+#dash_body { height: 1fr; width: 100%; }
+
+#progress_panel {
+    width: 30;
+    min-width: 24;
+    height: 1fr;
+}
+#center_col { width: 1fr; height: 1fr; padding: 0 1; }
+#ai_panel {
+    width: 36;
+    min-width: 28;
+    height: 1fr;
+}
+
+/* Shared panel chrome — round frame, identity on the border title */
+#progress_panel,
+#tool_execution_panel,
+#ai_panel,
+#finding_panel {
+    border: round $border;
+    border-title-color: $accent;
+    border-title-style: bold;
+    border-title-align: left;
+    border-subtitle-color: $text-faint;
+    border-subtitle-align: right;
+    background: $bg-panel;
+    padding: 0 1;
+    overflow-y: auto;
+    scrollbar-size: 1 1;
+    scrollbar-background: $bg-panel;
+    scrollbar-color: $border-strong;
+    scrollbar-color-active: $accent;
+    scrollbar-color-hover: $accent-dim;
+}
+
+/* Center column split: findings prominent, live output beneath */
+#finding_panel { height: 3fr; margin-bottom: 1; }
+/* The single live log fills the panel and does its own scrolling, so the
+   panel itself never scrolls (no second scrollbar). */
+#tool_execution_panel { height: 2fr; overflow: hidden hidden; }
+#live_log {
+    height: 1fr;
+    background: $bg;
+    color: $text-dim;
+    padding: 0 1;
+    scrollbar-size: 1 1;
+    scrollbar-background: $bg;
+    scrollbar-color: $border-strong;
+    scrollbar-color-active: $accent;
+    scrollbar-color-hover: $accent-dim;
+}
+
+/* Focus affordance: the zone you're scrolling gets the accent edge + title */
+#progress_panel:focus-within,
+#tool_execution_panel:focus-within,
+#ai_panel:focus-within,
+#finding_panel:focus-within {
+    border: round $accent-dim;
+    background: $bg-panel;
+}
+
+/* ── Module spine ── */
+#phase_label {
+    height: 2;
+    color: $text-dim;
+    margin-bottom: 1;
+}
+/* Selectable module spine (ListView) — compact one-line rows, teal-tinted
+   highlight so the operator can see which module `s` will skip. */
+#module_list { height: 1fr; background: transparent; border: none; padding: 0; }
+#module_list > ListItem { height: 1; background: transparent; padding: 0; }
+#module_list > ListItem > Static { height: 1; }
+#module_list > ListItem.-highlight,
+#module_list:focus > ListItem.-highlight { background: $bg-select; }
+
+.module-count {
+    color: $text-dim;
+    height: 1;
+    margin-top: 1;
+    border-top: solid $border;
+    padding-top: 0;
+}
+ProgressBar { width: 100%; height: 1; }
+Bar { width: 1fr; }
+Bar > .bar--bar { color: $accent; background: $bg-elevated; }
+Bar > .bar--complete { color: $ok; }
+Bar > .bar--indeterminate { color: $accent-dim; }
+PercentageStatus { color: $text-dim; text-style: bold; }
+
+/* ── Findings feed ── */
+#finding_counter {
+    color: $text-dim;
+    height: 1;
+    margin: 0 0 1 0;
+    border-bottom: solid $border;
+}
+#finding_list {
+    background: transparent;
+    height: auto;
+    border: none;
+    padding: 0;
+}
+#finding_list > ListItem {
+    background: $bg-elevated;
+    margin-bottom: 1;
+    padding: 0 1;
+    border-left: outer $border;
+}
+.finding-critical { border-left: outer $crit; }
+.finding-high     { border-left: outer $high; }
+.finding-medium   { border-left: outer $med; }
+.finding-low      { border-left: outer $low; }
+.finding-info     { border-left: outer $info; }
+
+#finding_list > ListItem.-highlight,
+#finding_list:focus > ListItem.-highlight {
+    background: $bg-select;
+}
+/* A finding the operator marked as a false positive this session. */
+.finding-fp { text-style: strike; color: $text-faint; }
+
+/* ── AI rail ── */
+.ai-counter { color: $text-dim; height: 1; margin: 0 0 1 0; border-bottom: solid $border; }
+.ai-note { color: $text-faint; height: auto; padding: 0 1; }
+#ai_entries { height: 1fr; }
+#ai_entries Collapsible {
+    border: none;
+    background: $bg-elevated;
+    margin: 0 0 1 0;
+    padding: 0 1;
+}
+#ai_entries Collapsible > CollapsibleTitle { color: $accent; text-style: bold; }
+#ai_entries Collapsible:focus > CollapsibleTitle { color: $accent; background: $bg-select; }
+#ai_entries Static { height: auto; color: $text; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Target setup
+   ═══════════════════════════════════════════════════════════════════════ */
+TargetSetupScreen {
+    background: $bg;
+    align: center top;
+}
+/* Fill the terminal width (capped on ultra-wide displays and centred there),
+   so the two-column form uses the available space instead of a narrow strip. */
+#setup_scroll { width: 100%; max-width: 220; align-horizontal: center; padding: 1 2; }
+#setup_cols { width: 100%; height: auto; }
+#setup_left  { width: 1fr; height: auto; margin-right: 2; }
+#setup_right { width: 1fr; height: auto; }
+.banner {
+    color: $accent;
+    text-style: bold;
+    content-align: center top;
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+}
+.subtitle {
+    color: $text-dim;
+    content-align: center middle;
+    width: 100%;
+    height: 1;
+    margin-bottom: 1;
+}
+
+/* Grouped "cards" so the form reads as sections, not a flat stack */
+.setup-card {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    background: $bg-panel;
+    border: round $border;
+    border-title-color: $accent;
+    border-title-style: bold;
+    border-title-align: left;
+    padding: 1 2;
+    margin-bottom: 1;
+}
+.section-label { color: $text-dim; text-style: bold; margin-top: 1; }
+.section-label-first { color: $text-dim; text-style: bold; }
+.field-hint { color: $text-faint; height: auto; margin-bottom: 1; }
+
+/* Two fields side by side (threads · delay) */
+.dual-row { height: auto; }
+.dual-row > Vertical { width: 1fr; height: auto; }
+.dual-row > Vertical:first-of-type { margin-right: 2; }
+
+.profile-buttons { align: center middle; height: auto; margin-top: 1; }
+.profile-buttons Button { margin: 0 1; }
+
+#module_grid {
+    layout: grid;
+    grid-size: 3;
+    grid-gutter: 0 2;
+    grid-rows: auto;
+    height: auto;
+    margin-top: 1;
+}
+.module-checkbox { height: auto; width: auto; }
+
+.status-row { height: auto; margin-top: 1; }
+.status-label { color: $text-dim; text-style: bold; width: auto; margin-right: 1; }
+.status-success { color: $ok; text-style: bold; }
+.status-fail { color: $high; text-style: bold; }
+
+Input {
+    background: $bg-elevated;
+    border: tall $border;
+    color: $text;
+    margin-bottom: 0;
+}
+Input:focus { border: tall $accent; }
+Input > .input--placeholder { color: $text-faint; }
+Input > .input--cursor { background: $accent; color: $bg; }
+
+Checkbox { background: transparent; color: $text; border: none; height: auto; padding: 0; }
+Checkbox:focus > .toggle--label { color: $accent; text-style: none; }
+Checkbox.-on > .toggle--button { color: $accent; }
+Checkbox > .toggle--button { background: $bg-elevated; }
+
+Button {
+    background: $bg-elevated;
+    color: $text;
+    border: tall $border;
+    text-style: none;
+    height: 3;
+}
+Button:focus { text-style: bold; border: tall $border-strong; }
+Button:hover { border: tall $accent; color: $accent; }
+Button.-primary, Button.-success {
+    background: $accent-dim;
+    color: $text;
+    border: tall $accent;
+    text-style: bold;
+}
+Button.-primary:hover, Button.-success:hover { background: $accent; color: $bg; }
+
+#start_btn { width: 100%; max-width: 100%; margin: 1 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Report viewer
+   ═══════════════════════════════════════════════════════════════════════ */
+#report_summary {
+    height: auto;
+    padding: 1 2;
+    background: $bg-panel;
+    border-bottom: solid $border-strong;
+    color: $text;
+}
+#report_body { height: 1fr; background: $bg; }
+#report_actions {
+    height: auto;
+    padding: 1 2;
+    background: $bg-panel;
+    border-top: solid $border;
+    align: left middle;
+}
+#report_actions Button { margin-right: 2; width: auto; min-width: 16; }
+
+Markdown { background: $bg; color: $text; padding: 1 2; }
+MarkdownH1 { color: $accent; text-style: bold; background: $bg; border: none; }
+MarkdownH2 { color: $accent; text-style: bold; background: $bg; border: none; }
+MarkdownH3 { color: $high; text-style: bold; }
+MarkdownBulletList { color: $text; }
+MarkdownFence { background: $bg-elevated; color: $text; }
+Markdown .code_inline { background: $bg-elevated; color: $accent; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Finding detail (modal)
+   ═══════════════════════════════════════════════════════════════════════ */
+FindingDetailScreen {
+    align: center middle;
+    background: $bg 60%;
+}
+#detail_box {
+    width: 84%;
+    max-width: 108;
+    height: 84%;
+    background: $bg-panel;
+    border: round $accent;
+    border-title-color: $accent;
+    border-title-style: bold;
+    border-title-align: left;
+    border-subtitle-color: $text-faint;
+    border-subtitle-align: right;
+    padding: 1 2;
+}
+#detail_scroll { height: 1fr; }
+#detail_body { height: auto; color: $text; }

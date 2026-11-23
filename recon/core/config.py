@@ -1,0 +1,70 @@
+"""
+Config — persistent storage for YATA RECON settings (API key, preferences).
+Stored at: ~/.yata-recon/config.json
+"""
+import os
+import json
+
+CONFIG_DIR  = os.path.join(os.path.expanduser("~"), ".yata-recon")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+
+
+def _load() -> dict:
+    if not os.path.exists(CONFIG_FILE):
+        return {}
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save(data: dict):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def get_api_key() -> str | None:
+    """Return saved NVIDIA API key, or None."""
+    return _load().get("nvidia_api_key")
+
+
+def set_api_key(key: str):
+    """Persist an NVIDIA API key."""
+    data = _load()
+    data["nvidia_api_key"] = key.strip()
+    _save(data)
+
+
+def remove_api_key():
+    """Delete the stored API key."""
+    data = _load()
+    data.pop("nvidia_api_key", None)
+    _save(data)
+
+
+# Default to a known-good free NVIDIA NIM model.
+DEFAULT_MODEL = "meta/llama-3.1-70b-instruct"
+
+
+def get_model() -> str:
+    """Return the configured NVIDIA NIM model id, or the default."""
+    return _load().get("nvidia_model") or DEFAULT_MODEL
+
+
+def set_model(model: str):
+    """Persist the NVIDIA NIM model id to use."""
+    data = _load()
+    data["nvidia_model"] = model.strip()
+    _save(data)
+
+
+def get(key: str, default=None):
+    return _load().get(key, default)
+
+
+def set_value(key: str, value):
+    data = _load()
+    data[key] = value
+    _save(data)
